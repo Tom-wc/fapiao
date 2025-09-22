@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>发票打印工具</title>
+    <link rel="stylesheet" href="styles.css">
+    <!-- PDF.js库 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <!-- JSZip库用于处理OFD文件 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <!-- pdf-lib库用于PDF合并操作 -->
+    <script src="vendor/pdf-lib.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>经纬公司发票打印工具</h1>
+            <p>支持PDF、图片等多种格式的发票打印</p>
+        </header>
+
+        <main>
+            <div class="upload-section">
+                <div class="upload-area" id="uploadArea">
+                    <div class="upload-content">
+                        <div class="upload-icon">📄</div>
+                        <h3>拖拽发票文件到此处</h3>
+                        <p>支持格式：PDF、JPG、PNG、GIF、BMP</p>
+                        <input type="file" id="fileInput" accept=".pdf,.jpg,.jpeg,.png,.gif,.bmp,.webp" multiple>
+                        <button class="upload-btn">
+                            选择发票文件
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="format-support">
+                    <h4>支持的文件格式：</h4>
+                    <div class="format-list">
+                        <span class="format-tag">PDF</span>
+                        <span class="format-tag">JPG/JPEG</span>
+                        <span class="format-tag">PNG</span>
+                        <span class="format-tag">GIF</span>
+                        <span class="format-tag">BMP</span>
+                        <span class="format-tag">WEBP</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="controls">
+                <div class="auto-layout-info">
+                    <h3>自动排版说明</h3>
+                    <p>系统将根据发票数量自动排版：</p>
+                    <ul>
+                        <li>1张发票：单张置顶居中，A4竖版</li>
+                        <li>2张及以上发票：每页2张，A4竖版</li>
+                    </ul>
+                </div>
+
+                <div class="action-buttons">
+                    <button id="clearBtn" class="btn btn-secondary">清空所有</button>
+                    <button id="previewBtn" class="btn btn-primary">预览排版</button>
+                    <button id="printBtn" class="btn btn-success">打印发票</button>
+                </div>
+            </div>
+
+            <div class="processing-status" id="processingStatus" style="display: none;">
+                <div class="status-content">
+                    <div class="spinner"></div>
+                    <span id="statusText">正在处理文件...</span>
+                </div>
+            </div>
+
+            <div class="preview-section" id="previewSection" style="display: none;">
+                <h3>打印预览</h3>
+                <div class="preview-pages" id="previewPages">
+                    <!-- 预览页面将在这里生成 -->
+                </div>
+            </div>
+
+            <div class="uploaded-files" id="uploadedFiles">
+                <!-- 上传的文件列表将在这里显示 -->
+            </div>
+        </main>
+    </div>
+
+    <!-- 调试信息显示 -->
+    <div id="debugInfo" style="display: none; position: fixed; top: 10px; left: 10px; background: rgba(0,0,0,0.8); color: white; padding: 10px; border-radius: 5px; font-family: monospace; font-size: 12px; z-index: 10000; max-width: 300px;">
+        <div id="debugContent"></div>
+        <button onclick="document.getElementById('debugInfo').style.display='none'" style="margin-top: 5px; padding: 2px 8px; background: #666; color: white; border: none; border-radius: 3px; cursor: pointer;">关闭</button>
+    </div>
+
+    <script src="script.js"></script>
+<script>
+(function(){
+  // 预览根容器（允许多种常见选择器兜底）
+  const root =
+    document.querySelector('#previewRoot') ||
+    document.querySelector('.preview-root') ||
+    document.querySelector('.preview-pages')?.closest('.preview-wrapper') ||
+    document.querySelector('.preview-pages')?.parentElement ||
+    document.body;
+
+  // 方向与布局控件（根据你的页面控件命名可自动匹配）
+  const orientationSelect =
+    document.querySelector('#orientationSelect') ||
+    document.querySelector('[name="orientation"]') ||
+    document.querySelector('select[data-role="orientation"]') ||
+    document.querySelector('#orientation');
+
+  const layoutRadios = document.querySelectorAll('[name="layout"]');
+
+  // 同步方向类名：orientation-landscape / orientation-portrait
+  function applyOrientation(val) {
+    const isLandscape = (val === 'landscape' || val === '横向');
+    root.classList.toggle('orientation-landscape', !!isLandscape);
+    root.classList.toggle('orientation-portrait', !isLandscape);
+  }
+
+  // 同步布局类名：layout-single / layout-double / layout-triple / layout-quad
+  function applyLayout(val) {
+    const all = ['layout-single','layout-double','layout-triple','layout-quad'];
+    root.classList.remove(...all);
+    // 支持中文与英文值
+    const map = {
+      'single':'layout-single','1':'layout-single','单张':'layout-single',
+      'double':'layout-double','2':'layout-double','双张':'layout-double',
+      'triple':'layout-triple','3':'layout-triple','三张':'layout-triple',
+      'quad':'layout-quad','4':'layout-quad','四张':'layout-quad'
+    };
+    const cls = map[val] || (val && val.startsWith('layout-') ? val : null);
+    if (cls) root.classList.add(cls);
+  }
+
+  // 事件绑定（若控件存在）
+  if (orientationSelect) {
+    orientationSelect.addEventListener('change', e => applyOrientation(e.target.value));
+  }
+  
+  layoutRadios.forEach(radio => {
+    radio.addEventListener('change', e => {
+      if (e.target.checked) {
+        applyLayout(e.target.value);
+      }
+    });
+  });
+
+  // 初始同步（如控件存在则取其值，否则默认A4竖版+单张）
+  const initOrientation = orientationSelect?.value || 'portrait';
+  const initLayout = document.querySelector('[name="layout"]:checked')?.value || 'single';
+  applyOrientation(initOrientation);
+  applyLayout(initLayout);
+
+  // 可选：暴露到全局，便于外部调用联动
+  window.__previewSync__ = { applyOrientation, applyLayout };
+})();
+</script>
+</body>
+</html>
